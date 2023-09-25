@@ -15,7 +15,7 @@ import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import { db } from '../../api/firebase';
-import { collection, getDocs, doc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc, query, where } from 'firebase/firestore';
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import Swal from 'sweetalert2';
@@ -25,12 +25,11 @@ import Modal from '@mui/material/Modal';
 import AddProduct from './AddProduct';
 import EditProduct from './EditProduct';
 import { useAppStore } from '../appStore';
-import Skeleton from '@mui/material/Skeleton';
 import AddProductPart from './AddProductPart';
 import AddCircleOutlineOutlinedIcon from '@mui/icons-material/AddCircleOutlineOutlined';
 import AssessmentIcon from '@mui/icons-material/Assessment';
+import Assessment from './Assessment';
 
-// 모달창 스타일
 const style = {
   position: 'absolute',
   top: '50%',
@@ -43,15 +42,15 @@ const style = {
   p: 4,
 };
 
-export default function ProductList() {
+export default function ProductList({ uid }) {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(5);
   const empCollectionRef = collection(db, "products");
-  // 모달창 변수 설정
   const [formid, setFormid] = useState('');
   const [open, setOpen] = useState(false);
   const [editopen, setEditOpen] = useState(false);
   const [viewproductpartlistopen, setViewProductPartListOpen] = useState(false);
+  const [assessmentOpen, setAssessmentOpen] = useState(false);
 
   const handleOpen = () => setOpen(true);
   const handleOpenAddProductPart = () => setViewProductPartListOpen(true);
@@ -63,14 +62,25 @@ export default function ProductList() {
   const rows = useAppStore((state) => state.rows);
 
   useEffect(() => {
+    // 제품 목록을 가져오는 함수를 호출합니다.
     getUsers();
   }, []);
 
   const getUsers = async () => {
-    const data = await getDocs(empCollectionRef);
-    setRows(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
+    try {
+      const q = query(empCollectionRef, where("uid", "==", uid));
+      const data = await getDocs(q);
+      setRows(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
+    } catch (error) {
+      console.error("Error fetching products:", error);
+    }
   };
 
+  useEffect(() => {
+    if (uid) {
+      getUsers();
+    }
+  }, [uid]);
 
   const handleChangePage = (event, newPage) => {
     setPage(newPage);
@@ -80,6 +90,9 @@ export default function ProductList() {
     setRowsPerPage(event.target.value);
     setPage(0);
   };
+
+  const handleAssessmentOpen = () => setAssessmentOpen(true);
+  const handleAssessmentClose = () => setAssessmentOpen(false);
 
   const deleteUser = (id) => {
     Swal.fire({
@@ -109,7 +122,6 @@ export default function ProductList() {
       setRows([v]);
     } else {
       setRows([]);
-      getUsers();
     }
   };
 
@@ -127,9 +139,14 @@ export default function ProductList() {
     handleEditOpen();
   };
 
+  const tableCellStyles = {
+    align: 'center',
+    style: { minWidth: '100px' },
+  };
 
   return (
     <>
+      {/*  */}
       <div>
         {/* 검색창, 등록버튼 만들기 (여기서부터) */}
         <Box height={10} />
@@ -162,7 +179,6 @@ export default function ProductList() {
         {/* 제품등록 버튼 클릭 시 모달창 Open 구현 */}
         <Modal
           open={open}
-          // onClose={handleClose}
           aria-labelledby="modal-modal-title"
           aria-describedby="modal-modal-description"
         >
@@ -174,7 +190,6 @@ export default function ProductList() {
         {/* Part View 버튼 클릭 시 모달창 Open 구현 */}
         <Modal
           open={viewproductpartlistopen}
-          // onClose={handleClose}
           aria-labelledby="modal-modal-title"
           aria-describedby="modal-modal-description"
         >
@@ -182,6 +197,17 @@ export default function ProductList() {
             <AddProductPart
               closeEvent={handleViewProductPartListClose}
               initialPartID={formid} />
+          </Box>
+        </Modal>
+
+        {/* 평가 버튼 클릭 시 모달창 Open 구현 */}
+        <Modal
+          open={assessmentOpen}
+          aria-labelledby="assessment-modal-title"
+          aria-describedby="assessment-modal-description"
+        >
+          <Box sx={style}>
+            <Assessment closeEvent={handleAssessmentClose} productID={formid} />
           </Box>
         </Modal>
 
@@ -208,32 +234,31 @@ export default function ProductList() {
           >
           </Typography>
 
-
           <Divider sx={{ mt: 2 }} />
 
           <TableContainer sx={{ maxHeight: 700, maxWidth: 1600 }}>
             <Table stickyHeader aria-label="sticky table">
               <TableHead>
                 <TableRow>
-                  <TableCell align='left' style={{ minWidth: '100px' }}>
+                  <TableCell {...tableCellStyles}>
                     Category
                   </TableCell>
-                  <TableCell align='left' style={{ minWidth: '100px' }}>
+                  <TableCell {...tableCellStyles}>
                     Name
                   </TableCell>
-                  <TableCell align='left' style={{ minWidth: '100px' }}>
+                  <TableCell {...tableCellStyles}>
                     Model Name
                   </TableCell>
-                  <TableCell align='left' style={{ minWidth: '100px' }}>
+                  <TableCell {...tableCellStyles}>
                     Weight(g)
                   </TableCell>
-                  <TableCell align='left' style={{ minWidth: '100px' }}>
+                  <TableCell {...tableCellStyles}>
                     Registrated Date
                   </TableCell>
-                  <TableCell align='left' style={{ minWidth: '100px' }}>
+                  <TableCell {...tableCellStyles}>
                     Memo
                   </TableCell>
-                  <TableCell align='left' style={{ minWidth: '100px' }}>
+                  <TableCell {...tableCellStyles}>
                     Action
                   </TableCell>
                 </TableRow>
@@ -243,7 +268,7 @@ export default function ProductList() {
                   .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
                   .map((row) => {
                     return (
-                      <TableRow hover role="checkbox" tabIndex={-1} >
+                      <TableRow key={row.id} hover role="checkbox" tabIndex={-1} >
                         <TableCell key={row.productid} align='left'>
                           {row.category}
                         </TableCell>
@@ -273,7 +298,7 @@ export default function ProductList() {
                               }}
                               className="cursor-pointer"
                               onClick={() => {
-                                setFormid(row.id);  // 추가한 부분: 현재 행의 ID를 저장
+                                setFormid(row.id);
                                 handleOpenAddProductPart();
                               }}
                             />
@@ -285,9 +310,10 @@ export default function ProductList() {
                                 cursor: "pointer",
                               }}
                               className="cursor-pointer"
-                            // onClick={() => {
-                            //   viewMaterialsData(row.id);
-                            // }}
+                              onClick={() => {
+                                setFormid(row.id);
+                                handleAssessmentOpen();
+                              }}
                             />
 
                             <EditIcon
@@ -329,26 +355,6 @@ export default function ProductList() {
             onRowsPerPageChange={handleChangeRowsPerPage}
           />
         </Paper>
-      )}
-      {/* skeleton : 데이터를 로딩하는 동안 회색으로 콘텐츠를 표시해주는 기능 */}
-      {rows.length == 0 && (
-        <>
-          <Paper sx={{ width: '98%', overflow: 'hidden', padding: '12px' }}>
-            <Box height={20} />
-            <Skeleton variant='rectangular' width={'100%'} height={30} />
-            <Box height={40} />
-            <Skeleton variant='rectangular' width={'100%'} height={60} />
-            <Box height={20} />
-            <Skeleton variant='rectangular' width={'100%'} height={60} />
-            <Box height={20} />
-            <Skeleton variant='rectangular' width={'100%'} height={60} />
-            <Box height={20} />
-            <Skeleton variant='rectangular' width={'100%'} height={60} />
-            <Box height={20} />
-            <Skeleton variant='rectangular' width={'100%'} height={60} />
-            <Box height={20} />
-          </Paper>
-        </>
       )}
     </>
   );

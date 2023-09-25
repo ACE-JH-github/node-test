@@ -1,25 +1,70 @@
 import { Close } from '@mui/icons-material';
-import { Box, Button, Grid, IconButton, MenuItem, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  Checkbox,
+  FormControl,
+  FormControlLabel,
+  Grid,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Select,
+  Typography,
+} from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import TextField from '@mui/material/TextField';
 import { db } from '../../api/firebase';
-import { collection, getDocs, setDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, setDoc, doc, getDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 import './CSS/sweetalert2.css';
 import { useAppStore } from '../appStore';
 
-export default function EditPartMaterial({ closeEvent, currentPartID, editMaterial }) {
-  const [partmaterialgroup, setPartMaterialGroup] = useState(() => editMaterial?.materialgroup || '');
-  const [partmaterialname, setPartMaterialName] = useState(() => editMaterial?.materialname || '');
-  const [partmaterialmass, setPartMaterialMass] = useState(() => editMaterial?.materialmass || '');
-  const [partrecycledcontents, setPartRecycledContents] = useState(() => editMaterial?.recycledcontent || '');
-  const [partrecycledtype, setPartRecycledType] = useState(() => editMaterial?.recycledtype || '');
-
+export default function EditPartMaterial({
+  closeEvent,
+  currentPartID,
+  editMaterial,
+}) {
+  const [partmaterialgroup, setPartMaterialGroup] = useState(
+    () => editMaterial?.materialgroup || ''
+  );
+  const [partmaterialname, setPartMaterialName] = useState(
+    () => editMaterial?.materialname || ''
+  );
+  const [partmaterialmass, setPartMaterialMass] = useState(
+    () => editMaterial?.materialmass || ''
+  );
+  const [partselectrecycledcontent, setSelectRecycledContent] = useState(
+    () => editMaterial?.recycledcontent || ''
+  );
+  const [partrecycledcontents, setPartRecycledContents] = useState(
+    () => editMaterial?.recyclingcontent || ''
+  );
+  const [partrecycledtype, setPartRecycledType] = useState(
+    () => editMaterial?.recycledtype || ''
+  );
+  const [serialName, setSerialName] = useState('');
+  const [partMass, setPartMass] = useState('');
   const setRows = useAppStore((state) => state.setRows);
   const rows = useAppStore((state) => state.rows);
 
+  useEffect(() => {
+    const fetchPartSerialName = async () => {
+      const partDocRef = doc(db, 'parts', currentPartID);
+      const partDocSnapshot = await getDoc(partDocRef);
+      if (partDocSnapshot.exists()) {
+        setSerialName(partDocSnapshot.data().serialname);
+      } else {
+        console.log('No such document!');
+      }
+    };
+
+    fetchPartSerialName();
+    fetchMaterialGroups();
+  }, []);
+
   const handleEdit = (e, fieldName) => {
-    const newRows = rows.map(row => {
+    const newRows = rows.map((row) => {
       if (row.id === editMaterial.id) {
         return {
           ...row,
@@ -31,6 +76,20 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
 
     setRows(newRows);
   };
+
+  useEffect(() => {
+    const fetchPartMass = async () => {
+      const partDocRef = doc(db, 'parts', currentPartID);
+      const partDocSnapshot = await getDoc(partDocRef);
+      if (partDocSnapshot.exists()) {
+        setPartMass(partDocSnapshot.data().weight);
+      } else {
+        console.log('No such document!');
+      }
+    };
+
+    fetchPartMass(); // 'weight' 값을 가져옴
+  }, []);
 
   const materialGroupsRef = collection(db, 'materials');
   const [materialGroups, setMaterialGroups] = useState([]);
@@ -44,7 +103,9 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
     fetchMaterialGroups();
     // editMaterial이나 materialGroups가 변경될 때마다 실행되므로 Material Group이 선택되어 Material Names을 가져올 수 있도록 함.
     if (editMaterial && materialGroups.length > 0) {
-      const currentGroup = materialGroups.find((group) => group.MaterialGroup === editMaterial.materialgroup);
+      const currentGroup = materialGroups.find(
+        (group) => group.MaterialGroup === editMaterial.materialgroup
+      );
       if (currentGroup) {
         fetchMaterialNames(currentGroup.id);
       }
@@ -55,10 +116,12 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
   const fetchMaterialGroups = async () => {
     try {
       const materialGroupsSnapshot = await getDocs(materialGroupsRef);
-      const materialGroupsData = materialGroupsSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })).sort((a, b) => b.MaterialGroup.localeCompare(a.MaterialGroup));
+      const materialGroupsData = materialGroupsSnapshot.docs
+        .map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }))
+        .sort((a, b) => b.MaterialGroup.localeCompare(a.MaterialGroup));
       setMaterialGroups(materialGroupsData);
     } catch (error) {
       console.error('Error fetching material groups:', error);
@@ -77,8 +140,12 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
   const fetchMaterialNames = async (materialGroupId) => {
     try {
       const materialGroupRef = doc(materialGroupsRef, materialGroupId);
-      const materialNamesSnapshot = await getDocs(collection(materialGroupRef, 'materialnames'));
-      const materialNamesData = materialNamesSnapshot.docs.map((doc) => doc.data().MaterialName);
+      const materialNamesSnapshot = await getDocs(
+        collection(materialGroupRef, 'materialnames')
+      );
+      const materialNamesData = materialNamesSnapshot.docs.map(
+        (doc) => doc.data().MaterialName
+      );
       materialNamesData.sort();
       setMaterialNames(materialNamesData);
     } catch (error) {
@@ -96,10 +163,13 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
 
   // 이 과정을 거치면 Material Group 선택 시 해당 문서의 ID를 기반으로 materialnames 하위 컬렉션을 불러오게 됨.
   const handlePartMaterialGroupChange = (e) => {
-    const selectedMaterialGroup = materialGroups.find((group) => group.MaterialGroup === e.target.value);
+    const selectedMaterialGroup = materialGroups.find(
+      (group) => group.MaterialGroup === e.target.value
+    );
     setPartMaterialGroup(selectedMaterialGroup.MaterialGroup);
     if (selectedMaterialGroup) {
       fetchMaterialNames(selectedMaterialGroup.id);
+      setPartMaterialName('');
     } else {
       setMaterialNames([]); // Material Group이 선택되지 않은 경우, 빈 배열로 초기화
     }
@@ -107,12 +177,16 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
 
   const handlePartRecycledContents = (e) => {
     setPartRecycledContents(e.target.value);
-    handleEdit(e.target.value, 'recycledcontent');
+    handleEdit(e.target.value, 'recyclingcontent');
   };
 
   const handlePartMaterialName = (e) => {
     setPartMaterialName(e.target.value);
     handleEdit(e.target.value, 'materialname');
+  };
+
+  const handleSelectPartRecycledContent = (e) => {
+    setSelectRecycledContent(e.target.checked ? 'Yes' : 'No'); // 체크박스
   };
 
   const handlePartRecycledType = (e) => {
@@ -125,8 +199,6 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
     handleEdit(e.target.value, 'materialmass');
   };
 
-
-
   const updateMaterial = async () => {
     try {
       const partDocRef = doc(db, 'parts', currentPartID);
@@ -134,7 +206,8 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
       const updatedMaterial = {
         materialgroup: partmaterialgroup,
         materialname: partmaterialname,
-        recycledcontent: Number(partrecycledcontents),
+        recycledcontent: partselectrecycledcontent ? 'Yes' : 'No',
+        recyclingcontent: Number(partrecycledcontents),
         recycledtype: partrecycledtype,
         materialmass: Number(partmaterialmass),
       };
@@ -168,7 +241,6 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
   const recycledtype = [
     { value: 'Pre Consumer', label: 'Pre Consumer' },
     { value: 'Post Consumer', label: 'Post Consumer' },
-    { value: 'Pre & Post Consumer', label: 'Pre & Post Consumer' },
     { value: 'Unspecified', label: 'Unspecified' },
   ];
 
@@ -179,45 +251,130 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
       <Typography variant="h4" align="center" sx={{ mb: 4 }}>
         Edit Material
       </Typography>
-
       {/* 소재 등록 팝업 우측 상단 닫기 아이콘 */}
       <IconButton
-        style={{ position: "absolute", top: '0', right: '0' }}
+        style={{ position: 'absolute', top: '0', right: '0' }}
         onClick={closeEvent}
       >
         <Close />
       </IconButton>
       <Box height={20} />
       <Grid container spacing={2}>
-
-        {/* Material Group 항목 */}
-        <Grid item xs={6}>
+        {/* 고유번호 */}
+        <Grid item xs={4}>
           <Typography variant="subtitle1" mb={1}>
-            Material Group
+            Serial Name
           </Typography>
           <TextField
             id="outlined-basic"
-            label="Select a Name"
-            select
+            label="Part Serial Name"
             variant="outlined"
             size="small"
-            onChange={handlePartMaterialGroupChange}
-            value={partmaterialgroup}
+            sx={{
+              minWidth: '100%',
+              mb: 2,
+              color: 'black',
+              backgroundColor: '#d3d3d3',
+            }}
+            value={serialName}
+            disabled
+          />
+        </Grid>
+        {/* Material Group 항목 */}
+        <Grid item xs={4}>
+          <Typography variant="subtitle1" mb={1}>
+            Material Group
+          </Typography>
+          <FormControl
+            variant="outlined"
+            size="small"
             sx={{ minWidth: '100%', maxWidth: '100%', mb: 2 }}
-            className="override-input-styles" // MUI TextField 컴포넌트에 SweetAlert2스타일을 오버라이딩하기 위한 클래스 추가
           >
-            {materialGroups.map((option) => (
-              <MenuItem key={option.MaterialGroup} value={option.MaterialGroup}>
-                {option.MaterialGroup}
-              </MenuItem>
-            ))}
-          </TextField>
+            <InputLabel id="select-material-group-label">
+              Select a Group
+            </InputLabel>
+            <Select
+              labelId="select-material-group-label"
+              id="select-material-group"
+              value={partmaterialgroup}
+              onChange={handlePartMaterialGroupChange}
+              MenuProps={{
+                PaperProps: {
+                  style: {
+                    maxHeight: 48 * 4.5,
+                    width: '20ch',
+                  },
+                },
+              }}
+            >
+              {materialGroups.map((option) => (
+                <MenuItem
+                  key={option.MaterialGroup}
+                  value={option.MaterialGroup}
+                >
+                  {option.MaterialGroup}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </Grid>
 
-        {/* Recycled Contents 항목 */}
-        <Grid item xs={6}>
+        {/* Material Name 항목 */}
+        <Grid item xs={4}>
           <Typography variant="subtitle1" mb={1}>
-            Recycled Contents (%)
+            Material Name
+          </Typography>
+          <FormControl
+            variant="outlined"
+            size="small"
+            sx={{ minWidth: '100%', maxWidth: '100%', mb: 2 }}
+          >
+            <InputLabel id="select-material-name-label">
+              Select a Group
+            </InputLabel>
+            <Select
+              labelId="select-material-name-label"
+              id="select-material-name"
+              onChange={handlePartMaterialName}
+              value={partmaterialname}
+              MenuProps={{
+                PaperProps: {
+                  style: {
+                    maxHeight: 48 * 4.5,
+                    width: '20ch',
+                  },
+                },
+              }}
+            >
+              {materialNames.map((option) => (
+                <MenuItem key={option} value={option}>
+                  {option}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+
+        {/* Recycled Content */}
+        <Grid item xs={4}>
+          <Typography variant="subtitle1" mb={1}>
+            Recycled Content
+          </Typography>
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={partselectrecycledcontent === 'Yes'}
+                onChange={handleSelectPartRecycledContent}
+              />
+            }
+            label="재활용재질함량 여부"
+          />
+        </Grid>
+
+        {/* Recycling Contents 항목 */}
+        <Grid item xs={4}>
+          <Typography variant="subtitle1" mb={1}>
+            Recycling Contents (%)
           </Typography>
           <TextField
             id="outlined-basic"
@@ -230,31 +387,8 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
           />
         </Grid>
 
-        {/* Material Name 항목 */}
-        <Grid item xs={6}>
-          <Typography variant="subtitle1" mb={1}>
-            Material Name
-          </Typography>
-          <TextField
-            id="outlined-basic"
-            label="Select a Name"
-            select
-            variant="outlined"
-            size="small"
-            onChange={handlePartMaterialName}
-            value={partmaterialname}
-            sx={{ minWidth: '100%', maxWidth: '100%', mb: 2 }}
-          >
-            {materialNames.map((option) => (
-              <MenuItem key={option} value={option}>
-                {option}
-              </MenuItem>
-            ))}
-          </TextField>
-        </Grid>
-
         {/* Recycled Type 항목 */}
-        <Grid item xs={6}>
+        <Grid item xs={4}>
           <Typography variant="subtitle1" mb={1}>
             Recycled Type
           </Typography>
@@ -277,7 +411,7 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
         </Grid>
 
         {/* Material Mass(g) 항목 */}
-        <Grid item xs={6}>
+        <Grid item xs={4}>
           <Typography variant="subtitle1" mb={1}>
             Material Mass (g)
           </Typography>
@@ -291,11 +425,31 @@ export default function EditPartMaterial({ closeEvent, currentPartID, editMateri
             sx={{ minWidth: '100%', mb: 2 }}
           />
         </Grid>
+        {/* Part Mass(g) 항목 */}
+        <Grid item xs={4}>
+          <Typography variant="subtitle1" mb={1}>
+            Part Mass (g)
+          </Typography>
+          <TextField
+            id="outlined-basic"
+            label="Part Mass"
+            variant="outlined"
+            size="small"
+            value={partMass}
+            sx={{
+              minWidth: '100%',
+              mb: 2,
+              color: 'black',
+              backgroundColor: '#d3d3d3',
+            }}
+            disabled
+          />
+        </Grid>
 
         {/* Submit 버튼 */}
         <Grid item xs={12}>
           <Typography variant="h5" align="center">
-            <Button variant="contained" onClick={updateMaterial} >
+            <Button variant="contained" onClick={updateMaterial}>
               Edit
             </Button>
           </Typography>

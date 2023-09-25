@@ -1,50 +1,36 @@
 import { Close } from '@mui/icons-material';
-import {
-  Box,
-  Button,
-  Grid,
-  IconButton,
-  MenuItem,
-  Typography,
-} from '@mui/material';
+import { Box, Button, Grid, IconButton, MenuItem, Typography } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import TextField from '@mui/material/TextField';
 import { db } from '../../api/firebase';
-import {
-  collection,
-  getDocs,
-  setDoc,
-  doc,
-  updateDoc,
-} from 'firebase/firestore';
+import { collection, getDocs, addDoc, doc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
-import './CSS/sweetalert2.css';
+import { useAppStore } from '../appStore';
 
-export default function EditPartSubstance({
-  closeEvent,
-  currentPartID,
-  currentMaterialID,
-  editSubstance,
-}) {
-  const [partsubstancename, setPartSubstanceName] = useState(
-    () => editSubstance?.substancename || ''
-  );
-  const [partcasnumber, setPartCASNumber] = useState(
-    () => editSubstance?.casnumber || ''
-  );
-  const [partsubstancemass, setPartSubstanceMass] = useState(
-    () => editSubstance?.substancemass || ''
-  );
-  const [substanceNames, setSubstanceNames] = useState([]);
+export default function AddProductSubstance({ closeEvent, productID, partID, materialID }) {
+  const [partsubstancename, setPartSubstanceName] = useState('');
+  const [partcasnumber, setPartCASNumber] = useState('');
+  const [partsubstancemass, setPartSubstanceMass] = useState('');
+  const setRows = useAppStore((state) => state.setRows);
+  const partCollectionRef = collection(db, 'parts');
   const substanceNamesRef = collection(db, 'substances');
+  const [substanceNames, setSubstanceNames] = useState([]);
+
+  useEffect(() => {
+    fetchSubstanceNames();
+  }, []);
+
+  const fetchSubstanceNames = async () => {
+    const substanceNamesSnapshot = await getDocs(substanceNamesRef);
+    const substanceNamesData = substanceNamesSnapshot.docs.map((doc) => doc.data());
+    setSubstanceNames(substanceNamesData);
+  };
 
   const handlePartSubstanceName = (e) => {
     const selectedSubstanceName = e.target.value;
     setPartSubstanceName(selectedSubstanceName);
 
-    const selectedSubstance = substanceNames.find(
-      (substance) => substance.substancename === selectedSubstanceName
-    );
+    const selectedSubstance = substanceNames.find(substance => substance.substancename === selectedSubstanceName);
     if (selectedSubstance) {
       setPartCASNumber(selectedSubstance.casnumber);
     }
@@ -54,72 +40,48 @@ export default function EditPartSubstance({
     setPartSubstanceMass(Number(e.target.value));
   };
 
-  const fetchSubstanceNames = async () => {
-    const substanceNamesSnapshot = await getDocs(substanceNamesRef);
-    const substanceNamesData = substanceNamesSnapshot.docs.map((doc) =>
-      doc.data()
-    );
-    setSubstanceNames(substanceNamesData);
-  };
-
-  useEffect(() => {
-    fetchSubstanceNames();
-  }, []);
-
   const handlePartCASNumber = (e) => {
     setPartCASNumber(e.target.value);
   };
 
-  const updateSubstance = async () => {
+  const createSubstance = async () => {
     try {
-      const partDocRef = doc(db, 'parts', currentPartID);
-      const materialDocRef = doc(partDocRef, 'materials', currentMaterialID);
-      const substanceDocRef = doc(
-        materialDocRef,
-        'substances',
-        editSubstance.id
-      );
-
-      const updatedSubstance = {
+      const substancesCollectionRef = collection(db, 'products', productID, 'parts', partID, 'materials', materialID, 'substances');
+      await addDoc(substancesCollectionRef, {
         substancename: partsubstancename,
         casnumber: partcasnumber,
         substancemass: Number(partsubstancemass),
-      };
-
-      await updateDoc(substanceDocRef, updatedSubstance);
-
+        date: String(new Date()),
+      });
+      getUsers();
       closeEvent();
       Swal.fire({
-        title: 'Updated!',
-        text: 'Your file has been updated.',
+        title: 'Submitted!',
+        text: 'Your file has been submitted.',
         icon: 'success',
-        confirmButtonClass: 'sweetalert-confirm-button',
+        confirmButtonClass: 'sweetalert-confirm-button',  // 팝업창의 OK버튼 스타일링
         customClass: {
-          container: 'sweetalert-container',
+          container: 'sweetalert-container', // 팝업창의 zindex값 변경 (mui 기본 zindex : 1300, sweetalert2 : 1060)
         },
       });
     } catch (error) {
-      console.error('Error updating material:', error);
-      Swal.fire({
-        title: 'Error!',
-        text: 'Failed to update the file.',
-        icon: 'error',
-        confirmButtonClass: 'sweetalert-confirm-button',
-        customClass: {
-          container: 'sweetalert-container',
-        },
-      });
+      console.error("Error creating substance: ", error);
     }
+  };
+
+  const getUsers = async () => {
+    const data = await getDocs(partCollectionRef);
+    setRows(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
   };
 
   return (
     <>
       <Box sx={{ m: 2 }} />
-      <Typography variant="h4" align="center" sx={{ mb: 4 }}>
-        Edit Substance
+      <Typography variant="h4" align='center' sx={{ mb: 4 }}>
+        Add Substance
       </Typography>
       <IconButton
-        style={{ position: 'absolute', top: '0', right: '0' }}
+        style={{ position: "absolute", top: '0', right: '0' }}
         onClick={closeEvent}
       >
         <Close />
@@ -135,7 +97,7 @@ export default function EditPartSubstance({
             label="Select a Name"
             select
             variant="outlined"
-            size="small"
+            size='small'
             onChange={handlePartSubstanceName}
             value={partsubstancename}
             sx={{ minWidth: '100%', maxWidth: '100%', mb: 2 }}
@@ -155,15 +117,11 @@ export default function EditPartSubstance({
             id="outlined-basic"
             label="CAS Number"
             variant="outlined"
-            size="small"
+            size='small'
             disabled={true}
             onChange={handlePartCASNumber}
             value={partcasnumber}
-            sx={{
-              minWidth: '100%',
-              mb: 2,
-              backgroundColor: 'rgba(0,0,0, 0.09)',
-            }}
+            sx={{ minWidth: '100%', mb: 2, backgroundColor: 'rgba(0,0,0, 0.09)' }}
           />
         </Grid>
 
@@ -175,7 +133,7 @@ export default function EditPartSubstance({
             id="outlined-basic"
             label="Enter Mass"
             variant="outlined"
-            size="small"
+            size='small'
             onChange={handlePartSubstanceMass}
             value={partsubstancemass}
             sx={{ minWidth: '100%', mb: 2 }}
@@ -183,19 +141,14 @@ export default function EditPartSubstance({
         </Grid>
 
         <Grid item xs={12}>
-          <Typography variant="h5" align="center">
+          <Typography variant='h5' align='center'>
             <Button
               variant="contained"
               color="primary"
-              onClick={updateSubstance}
-              sx={{
-                minWidth: '50%',
-                maxWidth: '50%',
-                m: 'auto',
-                display: 'flex',
-              }}
+              onClick={createSubstance}
+              sx={{ minWidth: '50%', maxWidth: '50%', m: 'auto', display: 'flex' }}
             >
-              Edit
+              Submit
             </Button>
           </Typography>
         </Grid>

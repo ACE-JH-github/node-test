@@ -9,16 +9,15 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Divider from '@mui/material/Divider';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import TextField from '@mui/material/TextField';
 import { db } from '../../api/firebase';
-import { collection, getDocs, addDoc, doc, query, where, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, addDoc, doc, query, where, deleteDoc, onSnapshot, getDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 import './CSS/sweetalert2.css';
 import ViewMaterialListInProduct from './ViewMaterialList';
-import { Modal } from 'flowbite';
+import Modal from '@mui/material/Modal';
 
-// 모달창 스타일
 const style = {
   position: 'absolute',
   top: '50%',
@@ -46,27 +45,40 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
   const [partNames, setPartNames] = useState([]);
   const [partsInProduct, setPartsInProduct] = useState([]);
   const [openMaterialModal, setOpenMaterialModal] = useState(false);
-  const [currentPartID, setCurrentPartID] = useState(initialPartID);
-  const [currentMaterialId, setCurrentMaterialId] = useState(null);
+  const [productId, setProductId] = useState(initialPartID);
+  const [currentPartId, setCurrentPartId] = useState(null);
+  const [totalWeightInTable, setTotalWeightInTable] = useState(0);
+  const [totalWeightInProduct, setTotalWeightInProduct] = useState(0);
 
   useEffect(() => {
     fetchPartNames();
   }, []);
 
   useEffect(() => {
-    if (currentPartID) {
-      const productDocRef = doc(db, 'products', currentPartID);
+    if (productId) {
+      const productDocRef = doc(db, 'products', productId);
       const unsubscribe = onSnapshot(collection(productDocRef, 'parts'), (snapshot) => {
         const newPartsInProduct = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         setPartsInProduct(newPartsInProduct);
-        setRows(newPartsInProduct); // 여기서 rows 상태를 업데이트합니다.
+        setRows(newPartsInProduct);
       });
-
-      // Clean-up function
       return () => unsubscribe();
     }
-  }, [currentPartID]);
+  }, [productId]);
 
+  useEffect(() => {
+    calculateTotalWeightInTable();
+  }, [partsInProduct]);
+
+  useEffect(() => {
+    if (initialPartID) {
+      fetchTotalWeightInProduct(initialPartID);
+    }
+  }, [initialPartID]);
+
+
+
+  // Part Name 드롭박스 (중복은 1번만 표기)
   const fetchPartNames = async () => {
     try {
       const partsSnapshot = await getDocs(partsRef);
@@ -85,7 +97,7 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
       });
     }
   };
-
+  // 모든 Serial Name 항목 불러오기
   const fetchSerialNames = async (partName) => {
     try {
       const partsSnapshot = await getDocs(partsRef);
@@ -109,7 +121,7 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
     }
   };
 
-  // 'weight', 'reused', 'memo'를 조회하는 함수
+  // 'weight', 'reused', 'memo' 조회
   const fetchAdditionalInfo = async (partName, serialName, partQuantity) => {
     try {
       const partsSnapshot = await getDocs(partsRef);
@@ -133,10 +145,10 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
   // parts에서 데이터 가져오기
   const fetchPartData = async (partName) => {
     try {
-      const partDocSnapshot = await getDocs(query(collection(db, 'parts'), where('name', '==', partName)));
+      // 'name' 필드가 partName과 일치하면서 동시에 'serialname' 필드가 partSerialName과 일치하는 문서를 가져옴
+      const partDocSnapshot = await getDocs(query(collection(db, 'parts'), where('name', '==', partName), where('serialname', '==', partSerialName)));
       const partDocData = partDocSnapshot.docs[0].data();
       const partDocId = partDocSnapshot.docs[0].id;
-
       const materialsSnapshot = await getDocs(collection(db, `parts/${partDocId}/materials`));
       const materialsData = await Promise.all(materialsSnapshot.docs.map(async (doc) => {
         const materialData = doc.data();
@@ -153,17 +165,34 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
     }
   };
 
-  // products에 데이터 추가하기
+  const fetchTotalWeightInProduct = async (productId) => {
+    try {
+      const productDoc = doc(db, 'products', productId);
+      const productSnapshot = await getDoc(productDoc);
+
+      if (productSnapshot.exists()) {
+        const totalWeight = productSnapshot.data().weight;
+        if (totalWeight) {
+          setTotalWeightInProduct(totalWeight);
+        }
+      } else {
+        console.log('No such document!');
+      }
+    } catch (error) {
+      console.error('Error fetching product:', error);
+    }
+  };
+
+
+  // products에 데이터 추가
   const addPartDataToProduct = async (productId, partData) => {
     try {
       const productDocRef = doc(db, 'products', productId);
       const partsCollectionRef = collection(productDocRef, 'parts');
       const newPartDocRef = await addDoc(partsCollectionRef, partData);
-
       for (const material of partData.materials) {
         const materialsCollectionRef = collection(newPartDocRef, 'materials');
         const newMaterialDocRef = await addDoc(materialsCollectionRef, material);
-
         for (const substance of material.substances) {
           const substancesCollectionRef = collection(newMaterialDocRef, 'substances');
           await addDoc(substancesCollectionRef, substance);
@@ -174,10 +203,10 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
     }
   };
 
-  const handlePartChange = (e) => {
+  const handlePartChange = useCallback((e) => {
     setProductPartName(e.target.value);
     fetchSerialNames(e.target.value);
-  };
+  }, []);
 
   const handlePartSerialName = (e) => {
     setPartMaterialName(e.target.value);
@@ -185,12 +214,10 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
 
   const handlePartQuantity = (e) => {
     const quantity = e.target.value;
-
     // If the input is not a number, don't update the state
     if (isNaN(quantity)) {
       return;
     }
-
     // Otherwise, update the state with the new quantity
     setPartQuantity(quantity);
   };
@@ -202,11 +229,16 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
 
   // "부품등록" 버튼 클릭 이벤트 처리기
   const handleAddPart = async () => {
-    const partData = await fetchPartData(productPartName);
+    const partData = await fetchPartData(productPartName, partSerialName); // 부품데이터 가져오기
     partData.quantity = partQuantity; // parts 하위컬렉션에 quantity 추가
     partData.totalWeight = partData.weight * partQuantity; // 무게 계산
-    await addPartDataToProduct(currentPartID, partData);
-    setPartsInProduct((prevParts) => [...prevParts, { ...partData, id: currentPartID }])
+    // 총 무게 체크 (partData.totalWeight : 'totalWeightInTable' + 추가할 무게 고려)
+    if (totalWeightInTable + partData.totalWeight > totalWeightInProduct) {
+      alert("부품의 총 무게가 제품 무게를 초과하였습니다.");
+      return;
+    }
+    await addPartDataToProduct(productId, partData);
+    setPartsInProduct((prevParts) => [...prevParts, { ...partData, id: productId }])
   };
 
   const handleChangePage = (event, newPage) => {
@@ -219,15 +251,13 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
   };
 
   const handleOpenMaterialModal = (partId) => {
-    setCurrentMaterialId(partId);
+    setCurrentPartId(partId);
     setOpenMaterialModal(true);
-  }
+  };
 
   const handleCloseMaterialModal = () => {
     setOpenMaterialModal(false);
-    setCurrentMaterialId(null);
   };
-
 
   const deletePart = (productId, partId) => {
     Swal.fire({
@@ -261,6 +291,17 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
     });
   };
 
+  const calculateTotalWeightInTable = () => {
+    const totalWeight = partsInProduct.reduce((sum, part) => sum + part.totalWeight, 0);
+    setTotalWeightInTable(totalWeight);
+  };
+
+  const tableCellStyles = {
+    align: 'center',
+    style: { minWidth: '100px' },
+    sx: { background: 'white', color: 'Black', border: '1px solid gray', borderRight: 'none', borderLeft: 'none' }
+  };
+
   return (
     <>
       {/* 제품 내 부품등록 팝업 제목부 */}
@@ -268,7 +309,7 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
       <Typography variant="h4" align="center" sx={{ mb: 4 }}>
         Add Parts In Product
       </Typography>
-
+      {/*  */}
       {/* 제품 내 부품 등록 팝업 우측 상단 닫기 아이콘 */}
       <IconButton
         style={{ position: "absolute", top: '0', right: '0' }}
@@ -285,7 +326,6 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
             Part Name
           </Typography>
           <TextField
-            id="outlined-basic"
             label="Select a Part Name"
             select
             variant="outlined"
@@ -309,7 +349,6 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
             Serial Name
           </Typography>
           <TextField
-            id="outlined-basic"
             label="Select a Serial Name"
             select
             variant="outlined"
@@ -332,7 +371,6 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
             Part Quantity
           </Typography>
           <TextField
-            id="outlined-basic"
             type="number"
             label="Enter Part Quantity"
             variant="outlined"
@@ -356,7 +394,6 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
             Weight
           </Typography>
           <TextField
-            id="outlined-basic"
             variant="outlined"
             size="small"
             value={partWeight}
@@ -373,7 +410,6 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
             Reused
           </Typography>
           <TextField
-            id="outlined-basic"
             variant="outlined"
             size="small"
             value={partReused}
@@ -390,7 +426,6 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
             Memo
           </Typography>
           <TextField
-            id="outlined-basic"
             variant="outlined"
             size="small"
             value={partMemo}
@@ -413,98 +448,108 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
       <Box sx={{ m: 3 }} />
       <Divider sx={{ mt: 2 }} />
 
-      {/* Material View 버튼 클릭 시 모달창 Open 구현 */}
-      <Modal
-        open={openMaterialModal}
-        // onClose={handleClose}
-        aria-labelledby="modal-modal-title"
-        aria-describedby="modal-modal-description"
-      >
-        <Box sx={style}>
-          <ViewMaterialListInProduct
-            closeEvent={handleCloseMaterialModal}
-            productId={currentPartID}
-            partId={currentMaterialId} />
-        </Box>
-      </Modal>
+      {/* Material View Open */}
+      {openMaterialModal && (
+        <Modal
+          open={openMaterialModal}
+          aria-labelledby="modal-modal-title"
+          aria-describedby="modal-modal-description"
+        >
+          <Box sx={style}>
+            <ViewMaterialListInProduct
+              open={openMaterialModal}
+              closeEvent={handleCloseMaterialModal}
+              productId={productId}
+              partId={currentPartId}
+            />
+          </Box>
+        </Modal>
+      )}
 
-      {/* 테이블 헤더부분 */}
-      <TableContainer sx={{ maxHeight: 700, maxWidth: 1600 }}>
-        <Table stickyHeader aria-label="sticky table">
-          <TableHead>
-            <TableRow>
-              <TableCell align='center' style={{ minWidth: '100px' }} sx={{ background: 'white', color: 'Black', border: '1px solid gray', borderRight: 'none' }}>
-                Part Name
-              </TableCell>
-              <TableCell align='center' style={{ minWidth: '100px' }} sx={{ background: 'white', color: 'Black', border: '1px solid gray', borderRight: 'none', borderLeft: 'none' }}>
-                Serial Name
-              </TableCell>
-              <TableCell align='center' style={{ minWidth: '100px' }} sx={{ background: 'white', color: 'Black', border: '1px solid gray', borderRight: 'none', borderLeft: 'none' }}>
-                Reused Part
-              </TableCell>
-              <TableCell align='center' style={{ minWidth: '100px' }} sx={{ background: 'white', color: 'Black', border: '1px solid gray', borderRight: 'none', borderLeft: 'none' }}>
-                Weight | Total(g)
-              </TableCell>
-              <TableCell align='center' style={{ minWidth: '100px' }} sx={{ background: 'white', color: 'Black', border: '1px solid gray', borderRight: 'none', borderLeft: 'none' }}>
-                Quantity
-              </TableCell>
-              <TableCell align='center' style={{ minWidth: '100px' }} sx={{ background: 'white', color: 'Black', border: '1px solid gray', borderRight: 'none', borderLeft: 'none' }}>
-                Registrated Date
-              </TableCell>
-              <TableCell align='center' style={{ minWidth: '100px' }} sx={{ background: 'white', color: 'Black', border: '1px solid gray', borderRight: 'none', borderLeft: 'none' }}>
-                Memo
-              </TableCell>
-              <TableCell align='left' style={{ minWidth: '100px' }} sx={{ background: 'white', color: 'Black', border: '1px solid gray', borderLeft: 'none' }}>
-                Action
-              </TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {rows.length > 0 ? (
-              rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((part, index) => (
-                <TableRow key={index}>
-                  <TableCell align="center">{part.name}</TableCell>
-                  <TableCell align="center">{part.serialname}</TableCell>
-                  <TableCell align="center">{part.reused}</TableCell>
-                  <TableCell align="center">{`${part.weight} | ${part.totalWeight}`}</TableCell>
-                  <TableCell align="center">{part.quantity}</TableCell>
-                  <TableCell align="center">
-                    {new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(part.date))}
-                  </TableCell>
-                  <TableCell align="center">{part.memo}</TableCell>
-                  <TableCell align="center">
-                    <Stack spacing={2} direction="row">
-                      <ListAltIcon
-                        style={{
-                          fontSize: "20px",
-                          color: "blue",
-                          cursor: "pointer",
-                        }}
-                        className="cursor-pointer"
-                        onClick={() => handleOpenMaterialModal(part.id)}
-                      />
-                      <DeleteIcon
-                        style={{
-                          fontSize: "20px",
-                          color: "darkred",
-                          cursor: "pointer",
-                        }}
-                        onClick={() => deletePart(currentPartID, part.id)}
-                      />
-                    </Stack>
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : (
+      {/* 무게 정보 표시 */}
+      <Box position="relative" sx={{ maxHeight: 700, maxWidth: 1600 }}>
+        <Typography variant="h10" position="absolute" right={0} top={-25}>
+          {totalWeightInProduct !== undefined ? `무게정보 : ${totalWeightInTable} / ${totalWeightInProduct}` : "Loading..."}
+        </Typography>
+
+        {/* 테이블 헤더 */}
+        <TableContainer sx={{ maxHeight: 700, maxWidth: 1600 }}>
+          <Table stickyHeader aria-label="sticky table">
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={7} align="center">
-                  No data available.
+                <TableCell {...tableCellStyles}>
+                  Part Name
+                </TableCell>
+                <TableCell {...tableCellStyles}>
+                  Serial Name
+                </TableCell>
+                <TableCell {...tableCellStyles}>
+                  Reused Part
+                </TableCell>
+                <TableCell {...tableCellStyles}>
+                  Weight | Total(g)
+                </TableCell>
+                <TableCell {...tableCellStyles}>
+                  Quantity
+                </TableCell>
+                <TableCell {...tableCellStyles}>
+                  Registrated Date
+                </TableCell>
+                <TableCell {...tableCellStyles}>
+                  Memo
+                </TableCell>
+                <TableCell {...tableCellStyles}>
+                  Action
                 </TableCell>
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+            </TableHead>
+            <TableBody>
+              {rows.length > 0 ? (
+                rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((part, index) => (
+                  <TableRow key={index}>
+                    <TableCell align="center">{part.name}</TableCell>
+                    <TableCell align="center">{part.serialname}</TableCell>
+                    <TableCell align="center">{part.reused}</TableCell>
+                    <TableCell align="center">{`${part.weight} | ${part.totalWeight}`}</TableCell>
+                    <TableCell align="center">{part.quantity}</TableCell>
+                    <TableCell align="center">
+                      {new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(part.date))}
+                    </TableCell>
+                    <TableCell align="center">{part.memo}</TableCell>
+                    <TableCell align="center">
+                      <Stack spacing={2} direction="row">
+                        <ListAltIcon
+                          style={{
+                            fontSize: "20px",
+                            color: "blue",
+                            cursor: "pointer",
+                          }}
+                          className="cursor-pointer"
+                          onClick={() => handleOpenMaterialModal(part.id)}
+                        />
+                        <DeleteIcon
+                          style={{
+                            fontSize: "20px",
+                            color: "darkred",
+                            cursor: "pointer",
+                          }}
+                          onClick={() => deletePart(productId, part.id)}
+                        />
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={7} align="center">
+                    No data available.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
       <TablePagination
         rowsPerPageOptions={[5, 10, 20, 50]}
         component="div"
@@ -517,5 +562,3 @@ export default function AddProductPart({ closeEvent, initialPartID }) {
     </>
   );
 }
-
-
